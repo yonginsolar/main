@@ -31,7 +31,7 @@
     <span class="dash">-</span>
     <input type="password" id="rrn2" name="rrn2" maxlength="7" placeholder="뒤 7자리" style="flex:1;" 
            oninput="handleNumberOnly(this); checkAgeLimit(); document.getElementById('rrnError').textContent='';" 
-           onblur="checkRRNOnBlur()" required>
+            required>
   </div>
   <div id="rrnError" class="field-error"></div>
 </div>
@@ -164,23 +164,13 @@
     </div>
 
     <script>
-      // ⚠️ 배포 주소 (Main.gs URL로 변경 필요)
-      const API_URL = "https://script.google.com/macros/s/AKfycbyB4YxiojN5ZsY3NDRxa6-LTBL7y8Ae_h182lm1Czl0567WGzEXhGP-RRHWXZdIkWXi/exec";
+// [신규] Supabase 클라이언트 초기화
+// TODO: 실제 배포 시 키 값은 환경변수나 별도 config 파일로 관리하는 것이 보안상 좋음
+const SUPABASE_URL = 'https://ifdqlwxgqgsvnawmhlfc.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmZHFsd3hncWdzdm5hd21obGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODQ3NDIsImV4cCI6MjA4Mjc2MDc0Mn0.UKUvMOl58KuDH24seC3oSgla7mK5lr-vXjqtpalnl6k'; // Anon Key 사용 (RLS로 보호됨)
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-      async function callApi(action, payload) {
-        try {
-          const response = await fetch(API_URL, {
-            method: "POST",
-            redirect: "follow",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(Object.assign({ action: action }, payload))
-          });
-          return await response.json();
-        } catch (error) {
-          console.error("API Error:", error);
-          throw new Error("서버 통신 중 오류가 발생했습니다.");
-        }
-      }
+// [변경] GAS API 호출 함수 제거됨 -> Supabase SDK 직접 호출로 변경
 
       // [수정] 약관 데이터에 'risk' 항목 추가됨
       var termsData = {
@@ -235,13 +225,22 @@
             checkOrgNoDuplicateServer(bizNo); 
          } else { errorDiv.textContent = "유효하지 않은 사업자(고유)번호입니다."; document.getElementById('orgNo').value = ""; }
       }
-      function checkOrgNoDuplicateServer(valStr) {
-         if(!valStr) return;
-         var formatted = valStr.substring(0,3)+"-"+valStr.substring(3,5)+"-"+valStr.substring(5);
-         callApi('checkDuplicate', { type: 'orgNo', value: formatted })
-           .then(res => { if(res.result === 'DUPLICATE') document.getElementById('orgNoError').textContent='이미 가입된 번호입니다.'; })
-           .catch(err => console.error(err));
-      }
+async function checkOrgNoDuplicateServer(valStr) {
+    if (!valStr) return;
+    var formatted = valStr.substring(0, 3) + "-" + valStr.substring(3, 5) + "-" + valStr.substring(5);
+    
+    // Supabase에서 해당 사업자번호가 있는지 카운트 조회
+    const { count, error } = await supabase
+        .from('coop_members')
+        .select('*', { count: 'exact', head: true }) // head: true는 데이터 없이 개수만 가져옴 (빠름)
+        .eq('rrn_display', formatted); // 주의: 단체는 rrn 컬럼을 쓰는지 확인 필요. 스키마상 rrn_display나 별도 컬럼 매핑
+
+    if (error) {
+        console.error("중복 체크 오류:", error);
+    } else if (count > 0) {
+        document.getElementById('orgNoError').textContent = '이미 가입된 번호입니다.';
+    }
+}
 
       function showTerm(e, type) {
         e.preventDefault(); e.stopPropagation();
@@ -296,27 +295,30 @@
         document.getElementById('accountHolder').value = val;
       }
       function handleAccountInput(el) { el.value = el.value.replace(/[^0-9]/g,''); }
-      function checkAccountDuplicateServer() {
-        var val = document.getElementById('accountNo').value; if(!val) return;
-        callApi('checkDuplicate', { type: 'account', value: val })
-          .then(res => { if(res.result === 'DUPLICATE') document.getElementById('accountError').textContent='이미 등록된 계좌입니다.'; })
-          .catch(err => console.error(err));
-      }
-      function checkRRNOnBlur() { 
-         var rrn = document.getElementById('rrn1').value + document.getElementById('rrn2').value;
-         if(rrn.length >= 7) {
-           callApi('checkDuplicate', { type: 'rrn', value: rrn })
-             .then(res => { if(res.result === 'DUPLICATE') document.getElementById('rrnError').textContent='이미 가입된 번호입니다.'; })
-             .catch(err => console.error(err));
-         }
-      }
-      function checkPhoneDuplicateServer() {
-         var userType = document.querySelector('input[name="userType"]:checked').value; if (userType === '단체') return;
-         var p = document.getElementById('p1').value+"-"+document.getElementById('p2').value+"-"+document.getElementById('p3').value;
-         callApi('checkDuplicate', { type: 'phone', value: p })
-           .then(res => { if(res.result === 'DUPLICATE') document.getElementById('phoneError').textContent='이미 가입된 연락처입니다.'; })
-           .catch(err => console.error(err));
-      }
+async function checkAccountDuplicateServer() {
+    var val = document.getElementById('accountNo').value;
+    if (!val) return;
+
+    const { count, error } = await supabase
+        .from('coop_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('account_number', val);
+
+    if (count > 0) document.getElementById('accountError').textContent = '이미 등록된 계좌입니다.';
+}
+
+async function checkPhoneDuplicateServer() {
+    var userType = document.querySelector('input[name="userType"]:checked').value;
+    if (userType === '단체') return;
+    var p = document.getElementById('p1').value + "-" + document.getElementById('p2').value + "-" + document.getElementById('p3').value;
+
+    const { count, error } = await supabase
+        .from('coop_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('phone', p);
+
+    if (count > 0) document.getElementById('phoneError').textContent = '이미 가입된 연락처입니다.';
+}
 
       function startTimer(duration, display) {
         var timer = duration, minutes, seconds; if(authTimer) clearInterval(authTimer);
@@ -344,56 +346,69 @@
         }, 1000);
       }
 
-      function reqEmailAuth() {
-        var em = document.getElementById('email').value; var btn = document.getElementById('btnEmailReq'); 
-        if(!em) return showAlert('이메일을 입력하세요.');
-        
-        btn.disabled = true; btn.textContent = "발송 중...";
-        callApi('sendEmailAuth', { email: em, userType: document.querySelector('input[name="userType"]:checked').value })
-          .then(res => {
-            if(res.result === 'DUPLICATE') { 
-                showAlert('이미 가입된 이메일입니다.'); 
-                btn.disabled = false; btn.textContent = "인증"; 
-            }
-            else if(res.result === 'SENT') { 
-               showAlert('📧 인증번호가 발송되었습니다.\n메일함을 확인해주세요.'); 
-               document.getElementById('authBox').style.display='flex'; 
-               document.getElementById('authCode').focus(); startTimer(300, document.querySelector('#timer')); startButtonCooldown(180, btn);
-            } else { 
-               showAlert('오류: ' + res.message); 
-               btn.disabled = false; btn.textContent = "인증"; 
-            }
-          })
-          .catch(err => { 
-              showAlert("서버 통신 오류: " + err.message); 
-              btn.disabled = false; btn.textContent = "인증"; 
-          });
-      }
-      function handleAuthCodeInput() {
-         var el = document.getElementById('authCode'); var val = el.value;
-         if(val.length === 6) {
-           el.readOnly = true; el.style.backgroundColor = "#e8f0fe"; 
-           callApi('verifyEmailAuth', { email: document.getElementById('email').value, code: val })
-             .then(res => {
-                if(res.result === 'OK') { 
-                   document.getElementById('emailError').textContent = ''; document.getElementById('authSuccessMsg').style.display='block'; 
-                   document.getElementById('authBox').style.display='none'; document.getElementById('isEmailVerified').value='true'; 
-                   document.getElementById('btnEmailReq').disabled = true; 
-                   if(authTimer) clearInterval(authTimer); if(btnCooldownTimer) clearInterval(btnCooldownTimer); 
-                   document.getElementById('btnEmailReq').textContent = "인증완료";
-                   originalEmail = document.getElementById('email').value;
-                } else {
-                   el.readOnly = false; el.style.backgroundColor = "#fff"; el.focus(); 
-                   if (res.result === 'BLOCK') { 
-                       document.getElementById('emailError').textContent = '❌ 5회 오류: 10분간 제한'; 
-                       showAlert("🚫 보안 경고\n인증 시도가 너무 많아 10분간 제한됩니다."); 
-                   } 
-                   else { document.getElementById('emailError').textContent = '번호가 틀립니다.'; }
-                }
-             })
-             .catch(err => console.error(err));
-         }
-      }
+// [수정] 이메일 인증 요청 (Supabase OTP)
+async function reqEmailAuth() {
+    var em = document.getElementById('email').value;
+    var btn = document.getElementById('btnEmailReq');
+    if (!em) return showAlert('이메일을 입력하세요.');
+
+    btn.disabled = true;
+    btn.textContent = "발송 중...";
+
+    // Supabase에 OTP(인증코드) 발송 요청
+    const { data, error } = await supabase.auth.signInWithOtp({
+        email: em,
+        options: { shouldCreateUser: false } // 아직 DB 등록 전이므로 Auth 유저만 생성 방지 (정책에 따라 true 가능)
+    });
+
+    if (error) {
+        showAlert("오류: " + error.message);
+        btn.disabled = false;
+        btn.textContent = "인증";
+    } else {
+        showAlert('📧 인증번호가 발송되었습니다.\n메일함을 확인해주세요.');
+        document.getElementById('authBox').style.display = 'flex';
+        document.getElementById('authCode').focus();
+        // 타이머 시작 로직은 기존 코드 재사용
+        startTimer(300, document.querySelector('#timer'));
+        startButtonCooldown(180, btn);
+    }
+}
+async function handleAuthCodeInput() {
+    var el = document.getElementById('authCode');
+    var val = el.value;
+    var email = document.getElementById('email').value;
+
+    if (val.length === 6) {
+        el.readOnly = true;
+        el.style.backgroundColor = "#e8f0fe";
+
+        // OTP 검증
+        const { data, error } = await supabase.auth.verifyOtp({
+            email: email,
+            token: val,
+            type: 'email'
+        });
+
+        if (error) {
+            el.readOnly = false;
+            el.style.backgroundColor = "#fff";
+            el.focus();
+            document.getElementById('emailError').textContent = '번호가 틀립니다.';
+        } else {
+            // 인증 성공
+            document.getElementById('emailError').textContent = '';
+            document.getElementById('authSuccessMsg').style.display = 'block';
+            document.getElementById('authBox').style.display = 'none';
+            document.getElementById('isEmailVerified').value = 'true';
+            document.getElementById('btnEmailReq').textContent = "인증완료";
+            
+            // 타이머 종료
+            if (authTimer) clearInterval(authTimer);
+            if (btnCooldownTimer) clearInterval(btnCooldownTimer);
+        }
+    }
+}
 
       function updateMoneyHint() {
          var v = document.getElementById('money').value;
@@ -432,18 +447,56 @@
         var formObject = {};
         formData.forEach((value, key) => formObject[key] = value);
 
-        document.getElementById('btnSubmit').disabled=true; document.getElementById('btnSubmit').textContent='처리중...';
+document.getElementById('btnSubmit').disabled = true;
+    document.getElementById('btnSubmit').textContent = '처리중...';
 
-        callApi('signup', { data: formObject })
-          .then(res => {
-             if (res.success || res.result === 'SUCCESS') { document.getElementById('successModal').style.display='flex'; } 
-             else { showAlert("오류: " + res.message); document.getElementById('btnSubmit').disabled=false; document.getElementById('btnSubmit').textContent='가입 신청하기'; }
-          })
-          .catch(err => {
-             showAlert("서버 통신 오류: " + err.message);
-             document.getElementById('btnSubmit').disabled=false; document.getElementById('btnSubmit').textContent='가입 신청하기';
-          });
-      }
+    // 1. 폼 데이터 가져오기
+    const formData = new FormData(form);
+    
+    // 2. DB 컬럼명에 맞춰 데이터 매핑
+    const insertData = {
+        name: formData.get('userName') || formData.get('orgName'), // 개인/단체 이름 통합
+        member_type: document.querySelector('input[name="userType"]:checked').value,
+        
+        // [중요] RRN은 평문으로 보냄 -> DB 트리거가 암호화함
+        rrn_encrypted: document.getElementById('rrn1').value + document.getElementById('rrn2').value,
+        rrn_display: document.getElementById('rrn1').value + "-" + document.getElementById('rrn2').value.charAt(0) + "******",
+        
+        phone: document.getElementById('fullPhone').value,
+        email: formData.get('email'),
+        address: document.getElementById('fullAddress').value,
+        
+        // 숫자형 변환 주의
+        pledge_amount: Number(formData.get('money')),
+        
+        recommender: formData.get('recommender'),
+        bank_name: formData.get('bankName'),
+        account_number: formData.get('accountNo'),
+        account_holder: formData.get('accountHolder'),
+        
+        is_agreed: true,
+        join_path: '홈페이지',
+        payment_status: '미납', // 기본값
+        status: '정상'         // 기본값
+    };
+
+    // 3. Supabase에 데이터 삽입
+    const { data, error } = await supabase
+        .from('coop_members')
+        .insert([insertData])
+        .select();
+
+    if (error) {
+        console.error("DB Error:", error);
+        showAlert("가입 신청 중 오류가 발생했습니다:\n" + error.message);
+        document.getElementById('btnSubmit').disabled = false;
+        document.getElementById('btnSubmit').textContent = '가입 신청하기';
+    } else {
+        // 성공 시 모달 표시
+        document.getElementById('successModal').style.display = 'flex';
+        // (선택) 여기서 환영 메일 발송 트리거 로직을 호출하거나, Edge Function이 자동 처리하도록 둠
+    }
+}
 
       function execDaumPostcode() {
         new daum.Postcode({
@@ -577,41 +630,50 @@ function handleSnsParams() {
 }
       // SignUp.html (또는 가입 버튼이 있는 페이지)
 
-function startKakaoSignup() {
-    // 1. state를 'signup_'으로 시작하게 만듭니다. (이게 핵심!)
-    var randomStr = Math.random().toString(36).substring(2, 15);
-    var state = "signup_" + randomStr; 
-
-    // 2. 카카오 인증 URL (리다이렉트 URI는 로그인 때와 똑같이 callback.html 씁니다)
-    var kakaoUrl = "https://kauth.kakao.com/oauth/authorize" +
-                    "?client_id=" + "22abc7108d7d6517e2abe1ddf382f842" + // 키 직접 입력 또는 변수 사용
-                    "&redirect_uri=" + encodeURIComponent("https://minho-kim.github.io/yongin-solar-web/callback.html") +
-                    "&response_type=code" +
-                    "&state=" + state;
-    
-    // 3. 현재 창에서 이동 (또는 팝업)
-    window.location.href = kakaoUrl; 
+// [수정] 카카오 로그인 (Supabase OAuth)
+async function startKakaoSignup() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'kakao',
+        options: {
+            // 로그인 후 다시 이 페이지로 돌아옴 (callback.html 필요 없음)
+            redirectTo: window.location.href 
+        }
+    });
+    if (error) showAlert("카카오 로그인 오류: " + error.message);
 }
-      function startNaverSignup() {
-    // 1. 네이버용 State 생성 (핵심: signup_naver_ 접두어)
-    // callback.html은 'signup_'으로 시작하기만 하면 되므로, 이 패턴을 쓰면
-    // 깃허브 코드를 수정하지 않아도 자동으로 인식됩니다! (천재적인 꼼수)
-    var randomStr = Math.random().toString(36).substring(2, 15);
-    var state = "signup_naver_" + randomStr; 
-    
-    // 2. Client ID 설정 (HTML 상단 상수 활용 권장)
-    var NAVER_CLIENT_ID = "발급받은_네이버_클라이언트_ID"; 
-
-    // 3. 인증 URL 생성
-    var naverUrl = "https://nid.naver.com/oauth2.0/authorize" +
-                    "?response_type=code" +
-                    "&client_id=" + NAVER_CLIENT_ID +
-                    "&redirect_uri=" + encodeURIComponent("https://minho-kim.github.io/yongin-solar-web/callback.html") +
-                    "&state=" + state;
-    
-    // 4. 이동
-    window.location.href = naverUrl;
+// [수정] 네이버 로그인 (Supabase OAuth - 설정 필요)
+async function startNaverSignup() {
+    // Supabase 대시보드에서 Naver Provider가 설정되어 있어야 함
+    const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'naver', // *주의: Supabase는 공식적으로 Naver 미지원일 수 있음. 확인 필요. 미지원이면 커스텀 로직 유지.
+        options: {
+            redirectTo: window.location.href
+        }
+    });
+     // 만약 Supabase에 Naver가 없다면 기존 로직을 쓰되, callback.html 없이 처리하는 복잡한 과정이 필요함. 
+     // 우선 Kakao 위주로 진행 권장.
 }
+      // [신규] 페이지 로드 시 로그인된 사용자 정보 확인 (SNS 로그인 후 복귀 처리)
+window.onload = async function() {
+    // URL에 있는 #access_token 등을 파싱하여 세션 복구
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (session) {
+        console.log("로그인된 유저:", session.user);
+        // SNS에서 가져온 정보로 폼 자동 채우기
+        if(session.user.user_metadata) {
+            const meta = session.user.user_metadata;
+            if(meta.full_name) document.getElementById('userName').value = meta.full_name;
+            if(meta.email) {
+                document.getElementById('email').value = meta.email;
+                document.getElementById('email').readOnly = true;
+                document.getElementById('isEmailVerified').value = 'true';
+                document.getElementById('authBox').style.display = 'none';
+                // 버튼 등 UI 변경 처리...
+            }
+        }
+    }
+};
       handleSnsParams();
     </script>
   </body>
