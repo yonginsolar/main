@@ -345,7 +345,7 @@
       if (!em) return showAlert('이메일을 입력하세요.');
       btn.disabled = true; btn.textContent = "발송 중...";
 
-      const { data, error } = await _supabase.auth.signInWithOtp({ email: em, options: { shouldCreateUser: false } });
+      const { data, error } = await _supabase.auth.signInWithOtp({ email: em, options: { shouldCreateUser: true } });
 
       if (error) {
          showAlert("오류: " + error.message);
