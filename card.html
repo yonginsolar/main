@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>조합원 현황판</title>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+    <style>
+        body {
+            font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+            background-color: transparent; /* 배경 투명 */
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* 스크롤바 원천 차단 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh; /* iframe 꽉 채우기 */
+        }
+
+        /* 공통 박스 스타일 */
+        .stat-box {
+            text-align: center;
+            width: 100%;
+            display: none; /* 기본적으로 다 숨김 (스크립트가 켬) */
+        }
+
+        .stat-label {
+            color: #555;
+            font-size: 16px;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 56px; /* 폰트 더 키움 (단독이니까) */
+            font-weight: 800;
+            color: #333;
+            margin-bottom: 5px;
+            letter-spacing: -2px;
+            line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .unit {
+            font-size: 24px;
+            font-weight: 600;
+            margin-left: 2px;
+            color: #777;
+        }
+
+        .text-orange { color: #ff9800; }
+
+        /* 상세 정보 (개인/단체) */
+        .sub-info {
+            display: inline-flex;
+            gap: 10px;
+            background-color: rgba(255, 255, 255, 0.5); /* 반투명 흰색 */
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+            justify-content: center;
+        }
+        
+        .sub-item strong { color: #333; }
+    </style>
+</head>
+<body>
+
+    <div id="card-member" class="stat-box">
+        <div class="stat-label">현재 조합원</div>
+        <div class="stat-value">
+            <span id="totalMember">0</span><span class="unit">명</span>
+        </div>
+        <div class="sub-info">
+            <span class="sub-item">개인 <strong id="indivCount">0</strong></span>
+            <span class="sub-item">단체 <strong id="groupCount">0</strong></span>
+        </div>
+    </div>
+
+    <div id="card-money" class="stat-box">
+        <div class="stat-label">모인 에너지 기금</div>
+        <div class="stat-value text-orange">
+            <span id="totalMoney">0</span><span class="unit">원</span>
+        </div>
+    </div>
+
+  <script>
+    // [1] 다시 원래 앱스크립트 배포 URL을 사용합니다.
+    const API_URL = "https://script.google.com/macros/s/AKfycbyB4YxiojN5ZsY3NDRxa6-LTBL7y8Ae_h182lm1Czl0567WGzEXhGP-RRHWXZdIkWXi/exec";
+
+    function formatNumber(num) { return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+
+    function animateCount(id, endValue) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const duration = 1500; 
+        const startTime = performance.now();
+        const startValue = 0;
+        function update(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const ease = 1 - Math.pow(1 - progress, 3); 
+            const current = Math.floor(ease * (endValue - startValue) + startValue);
+            element.innerText = formatNumber(current);
+            if (progress < 1) requestAnimationFrame(update);
+            else element.innerText = formatNumber(endValue);
+        }
+        requestAnimationFrame(update);
+    }
+
+    async function loadStats() {
+        try {
+            // [2] 모드 확인
+            const urlParams = new URLSearchParams(window.location.search);
+            const mode = urlParams.get('mode');
+
+            if (mode === 'money') {
+                if(document.getElementById('card-money')) document.getElementById('card-money').style.display = 'block';
+            } else {
+                if(document.getElementById('card-member')) document.getElementById('card-member').style.display = 'block';
+            }
+
+            // [3] 핵심 변경: 'getCachedStats' 액션 호출 (JSON 파일을 경유해서 가져옴)
+            const response = await fetch(API_URL + "?action=getCachedStats");
+            
+            if (!response.ok) throw new Error("네트워크 오류");
+            
+            const data = await response.json();
+
+            // [4] 데이터 연결
+            const indiv = Number(data.individual) || 0;
+            const group = Number(data.group) || 0;
+            const money = Number(data.amount) || 0;
+            const total = indiv + group;
+
+            if (mode === 'money') {
+                animateCount('totalMoney', money);
+            } else {
+                animateCount('indivCount', indiv);
+                animateCount('groupCount', group);
+                animateCount('totalMember', total);
+            }
+
+        } catch (error) {
+            console.error("통계 로딩 실패:", error);
+        }
+    }
+
+    loadStats();
+</script>
+</body>
+</html>
