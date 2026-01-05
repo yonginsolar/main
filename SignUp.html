@@ -4,6 +4,7 @@
     <base target="_top">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
@@ -655,26 +656,45 @@ async function startNaverSignup() {
 }
       // [신규] 페이지 로드 시 로그인된 사용자 정보 확인 (SNS 로그인 후 복귀 처리)
 window.onload = async function() {
-    // URL에 있는 #access_token 등을 파싱하여 세션 복구
+    // 1. 세션 복구 (URL의 토큰을 감지하여 자동 로그인 처리)
     const { data: { session } } = await supabase.auth.getSession();
 
     if (session) {
-        console.log("로그인된 유저:", session.user);
-        // SNS에서 가져온 정보로 폼 자동 채우기
-        if(session.user.user_metadata) {
-            const meta = session.user.user_metadata;
-            if(meta.full_name) document.getElementById('userName').value = meta.full_name;
+        console.log("로그인 성공:", session.user);
+        
+        // 2. 사용자 메타데이터(SNS 정보)로 폼 채우기
+        const meta = session.user.user_metadata;
+        if(meta) {
+            // 이름 채우기
+            if(meta.full_name) {
+                document.getElementById('userName').value = meta.full_name;
+                syncAccountHolder(); // 예금주 동기화
+            }
+            // 이메일 채우기 및 잠금
             if(meta.email) {
-                document.getElementById('email').value = meta.email;
-                document.getElementById('email').readOnly = true;
+                const emailInput = document.getElementById('email');
+                emailInput.value = meta.email;
+                emailInput.readOnly = true;
+                emailInput.style.backgroundColor = "#e8f0fe";
+                
+                // 이미 인증된 것으로 처리
                 document.getElementById('isEmailVerified').value = 'true';
+                document.getElementById('btnEmailReq').style.display = 'none'; // 인증 버튼 숨김
                 document.getElementById('authBox').style.display = 'none';
-                // 버튼 등 UI 변경 처리...
+                
+                // 안내 메시지 표시
+                if(!document.getElementById('snsAuthMsg')) {
+                     const msg = document.createElement('div');
+                     msg.id = 'snsAuthMsg';
+                     msg.style.cssText = "color:blue; font-size:12px; margin-top:5px; font-weight:bold;";
+                     msg.innerText = "✅ SNS 계정으로 인증되었습니다.";
+                     document.getElementById('authBox').parentNode.appendChild(msg);
+                }
             }
         }
     }
 };
-      handleSnsParams();
+
     </script>
   </body>
 </html>
