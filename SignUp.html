@@ -359,26 +359,56 @@
       }
     }
 
-    async function handleAuthCodeInput() {
-      var val = document.getElementById('authCode').value;
-      var email = document.getElementById('email').value;
-      if (val.length === 6) {
-         document.getElementById('authCode').readOnly = true;
-         const { data, error } = await _supabase.auth.verifyOtp({ email: email, token: val, type: 'email' });
-         if (error) {
-            document.getElementById('authCode').readOnly = false;
-            document.getElementById('emailError').textContent = '번호가 틀립니다.';
-         } else {
-            document.getElementById('emailError').textContent = '';
+async function handleAuthCodeInput() {
+    const elAuthCode = document.getElementById('authCode');
+    const elEmail = document.getElementById('email');
+    const elError = document.getElementById('emailError');
+
+    const val = elAuthCode.value;
+    const email = elEmail.value;
+
+    // 1. 6자리 입력되면 즉시 검증 시작
+    if (val.length === 6) {
+        // 중복 요청 방지: 입력창 잠금
+        elAuthCode.readOnly = true;
+        elError.textContent = '인증 확인 중...';
+
+        // 2. Supabase 인증 실행
+        // [중요] 신규 가입 인증이므로 type은 'email'이 아니라 'signup'이어야 합니다.
+        const { data, error } = await _supabase.auth.verifyOtp({ 
+            email: email, 
+            token: val, 
+            type: 'signup' // <-- 여기가 핵심입니다. (가입 인증용)
+        });
+
+        if (error) {
+            // 3. 실패 시: 다시 입력할 수 있게 풀어줌
+            console.error("인증 실패:", error.message);
+            elAuthCode.readOnly = false;
+            elError.textContent = '인증번호가 틀렸거나 만료되었습니다.';
+            elAuthCode.focus(); // 편의성: 다시 입력하라고 포커스 줌
+        } else {
+            // 4. 성공 시: UI 정리
+            console.log("인증 성공:", data);
+            elError.textContent = ''; // 에러 메시지 삭제
+            
+            // 인증 완료 UI 처리
             document.getElementById('authSuccessMsg').style.display = 'block';
             document.getElementById('authBox').style.display = 'none';
             document.getElementById('isEmailVerified').value = 'true';
-            document.getElementById('btnEmailReq').textContent = "인증완료";
-            if (authTimer) clearInterval(authTimer);
-            if (btnCooldownTimer) clearInterval(btnCooldownTimer);
-         }
-      }
+            
+            const btnReq = document.getElementById('btnEmailReq');
+            if(btnReq) {
+                btnReq.textContent = "인증완료";
+                btnReq.disabled = true; // 버튼 비활성화
+            }
+
+            // 타이머 정리 (메모리 누수 방지)
+            if (typeof authTimer !== 'undefined' && authTimer) clearInterval(authTimer);
+            if (typeof btnCooldownTimer !== 'undefined' && btnCooldownTimer) clearInterval(btnCooldownTimer);
+        }
     }
+}
     
     function enableEmailEdit() {
         showConfirm("이메일을 수정하시겠습니까?\n수정 시 인증을 다시 진행해야 합니다.", function() {
